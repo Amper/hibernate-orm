@@ -31,6 +31,7 @@ import org.hibernate.LockOptions;
 import org.hibernate.MappingException;
 import org.hibernate.NullPrecedence;
 import org.hibernate.ScrollMode;
+import org.hibernate.boot.Metadata;
 import org.hibernate.boot.model.TypeContributions;
 import org.hibernate.boot.model.relational.AuxiliaryDatabaseObject;
 import org.hibernate.boot.model.relational.Sequence;
@@ -64,6 +65,7 @@ import org.hibernate.engine.jdbc.env.spi.IdentifierHelperBuilder;
 import org.hibernate.engine.jdbc.env.spi.NameQualifierSupport;
 import org.hibernate.engine.jdbc.env.spi.SchemaNameResolver;
 import org.hibernate.engine.jdbc.spi.JdbcServices;
+import org.hibernate.engine.spi.Mapping;
 import org.hibernate.engine.spi.QueryParameters;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
 import org.hibernate.exception.spi.ConversionContext;
@@ -81,11 +83,7 @@ import org.hibernate.internal.util.StringHelper;
 import org.hibernate.internal.util.collections.ArrayHelper;
 import org.hibernate.internal.util.io.StreamCopier;
 import org.hibernate.loader.BatchLoadSizingStrategy;
-import org.hibernate.mapping.Column;
-import org.hibernate.mapping.Constraint;
-import org.hibernate.mapping.ForeignKey;
-import org.hibernate.mapping.Index;
-import org.hibernate.mapping.Table;
+import org.hibernate.mapping.*;
 import org.hibernate.persister.entity.Lockable;
 import org.hibernate.procedure.internal.StandardCallableStatementSupport;
 import org.hibernate.procedure.spi.CallableStatementSupport;
@@ -3003,5 +3001,74 @@ public abstract class Dialect implements ConversionContext {
 
 	protected String prependComment(String sql, String comment) {
 		return  "/* " + comment + " */ " + sql;
+	}
+
+	/**
+	 *
+	 * @return
+	 */
+	public String renderColumnDefinition(Column col, Table table, Mapping mapping) {
+		StringBuilder buf = new StringBuilder();
+
+		boolean isPrimaryKeyIdentity = table.hasPrimaryKey()
+				&& table.getIdentifierValue() != null
+				&& table.getIdentifierValue().isIdentityColumn( mapping.getIdentifierGeneratorFactory(), this );
+
+		// Try to find out the name of the primary key in case the dialect needs it to create an identity
+		String pkColName = null;
+		if ( isPrimaryKeyIdentity ) {
+			pkColName = table.getPrimaryKey().getColumnIterator().next().getQuotedName( this );
+		}
+
+		String colName = col.getQuotedName( this );
+		buf.append( colName ).append( ' ' );
+
+		if ( isPrimaryKeyIdentity && colName.equals( pkColName ) ) {
+			// to support dialects that have their own identity data type
+			if ( this.getIdentityColumnSupport().hasDataTypeInIdentityColumn() ) {
+				buf.append( col.getSqlType( this, mapping ) );
+			}
+			buf.append( ' ' );
+			buf.append( this.getIdentityColumnSupport()
+					.getIdentityColumnString( col.getSqlTypeCode( mapping ) ) );
+		}
+		else {
+			buf.append( col.getSqlType( this, mapping )  );
+
+			String defaultValue = col.getDefaultValue();
+			if ( defaultValue != null ) {
+				buf.append( " default " ).append( defaultValue );
+			}
+
+			if ( col.isNullable() ) {
+				buf.append( this.getNullColumnString() );
+			}
+			else {
+				buf.append( " not null" );
+			}
+		}
+
+		if ( col.isUnique() ) {
+			String keyName = Constraint.generateName( "UK_", table, col );
+			UniqueKey uk = table.getOrCreateUniqueKey( keyName );
+			uk.addColumn( col );
+			buf.append(
+					this.getUniqueDelegate()
+							.getColumnDefinitionUniquenessFragment( col )
+			);
+		}
+
+		if ( col.getCheckConstraint() != null && this.supportsColumnCheck() ) {
+			buf.append( " check (" )
+					.append( col.getCheckConstraint() )
+					.append( ")" );
+		}
+
+		String columnComment = col.getComment();
+		if ( columnComment != null ) {
+			buf.append( this.getColumnComment( columnComment ) );
+		}
+
+		return buf.toString();
 	}
 }

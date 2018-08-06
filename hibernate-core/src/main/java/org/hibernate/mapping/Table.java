@@ -480,45 +480,9 @@ public class Table implements RelationalModel, Serializable, Exportable {
 
 			if ( columnInfo == null ) {
 				// the column doesnt exist at all.
-				StringBuilder alter = new StringBuilder( root.toString() )
-						.append( ' ' )
-						.append( column.getQuotedName( dialect ) )
-						.append( ' ' )
-						.append( column.getSqlType( dialect, metadata ) );
-
-				String defaultValue = column.getDefaultValue();
-				if ( defaultValue != null ) {
-					alter.append( " default " ).append( defaultValue );
-				}
-
-				if ( column.isNullable() ) {
-					alter.append( dialect.getNullColumnString() );
-				}
-				else {
-					alter.append( " not null" );
-				}
-
-				if ( column.isUnique() ) {
-					String keyName = Constraint.generateName( "UK_", this, column );
-					UniqueKey uk = getOrCreateUniqueKey( keyName );
-					uk.addColumn( column );
-					alter.append( dialect.getUniqueDelegate()
-							.getColumnDefinitionUniquenessFragment( column ) );
-				}
-
-				if ( column.hasCheckConstraint() && dialect.supportsColumnCheck() ) {
-					alter.append( " check(" )
-							.append( column.getCheckConstraint() )
-							.append( ")" );
-				}
-
-				String columnComment = column.getComment();
-				if ( columnComment != null ) {
-					alter.append( dialect.getColumnComment( columnComment ) );
-				}
-
+				StringBuilder alter = new StringBuilder( root.toString() ).append( ' ' );
+				alter.append( dialect.renderColumnDefinition( column, this, metadata ) );
 				alter.append( dialect.getAddColumnSuffixString() );
-
 				results.add( alter.toString() );
 			}
 
@@ -536,98 +500,8 @@ public class Table implements RelationalModel, Serializable, Exportable {
 	}
 
 	public String sqlCreateString(Dialect dialect, Mapping p, String defaultCatalog, String defaultSchema) {
-		StringBuilder buf = new StringBuilder( hasPrimaryKey() ? dialect.getCreateTableString() : dialect.getCreateMultisetTableString() )
-				.append( ' ' )
-				.append( getQualifiedName( dialect, defaultCatalog, defaultSchema ) )
-				.append( " (" );
-
-		boolean identityColumn = idValue != null && idValue.isIdentityColumn( p.getIdentifierGeneratorFactory(), dialect );
-
-		// Try to find out the name of the primary key to create it as identity if the IdentityGenerator is used
-		String pkname = null;
-		if ( hasPrimaryKey() && identityColumn ) {
-			pkname = ( (Column) getPrimaryKey().getColumnIterator().next() ).getQuotedName( dialect );
-		}
-
-		Iterator iter = getColumnIterator();
-		while ( iter.hasNext() ) {
-			Column col = (Column) iter.next();
-
-			buf.append( col.getQuotedName( dialect ) )
-					.append( ' ' );
-
-			if ( identityColumn && col.getQuotedName( dialect ).equals( pkname ) ) {
-				// to support dialects that have their own identity data type
-				if ( dialect.getIdentityColumnSupport().hasDataTypeInIdentityColumn() ) {
-					buf.append( col.getSqlType( dialect, p ) );
-				}
-				buf.append( ' ' )
-						.append( dialect.getIdentityColumnSupport().getIdentityColumnString( col.getSqlTypeCode( p ) ) );
-			}
-			else {
-
-				buf.append( col.getSqlType( dialect, p ) );
-
-				String defaultValue = col.getDefaultValue();
-				if ( defaultValue != null ) {
-					buf.append( " default " ).append( defaultValue );
-				}
-
-				if ( col.isNullable() ) {
-					buf.append( dialect.getNullColumnString() );
-				}
-				else {
-					buf.append( " not null" );
-				}
-
-			}
-			
-			if ( col.isUnique() ) {
-				String keyName = Constraint.generateName( "UK_", this, col );
-				UniqueKey uk = getOrCreateUniqueKey( keyName );
-				uk.addColumn( col );
-				buf.append( dialect.getUniqueDelegate()
-						.getColumnDefinitionUniquenessFragment( col ) );
-			}
-				
-			if ( col.hasCheckConstraint() && dialect.supportsColumnCheck() ) {
-				buf.append( " check (" )
-						.append( col.getCheckConstraint() )
-						.append( ")" );
-			}
-
-			String columnComment = col.getComment();
-			if ( columnComment != null ) {
-				buf.append( dialect.getColumnComment( columnComment ) );
-			}
-
-			if ( iter.hasNext() ) {
-				buf.append( ", " );
-			}
-
-		}
-		if ( hasPrimaryKey() ) {
-			buf.append( ", " )
-					.append( getPrimaryKey().sqlConstraintString( dialect ) );
-		}
-
-		buf.append( dialect.getUniqueDelegate().getTableCreationUniqueConstraintsFragment( this ) );
-
-		if ( dialect.supportsTableCheck() ) {
-			for ( String checkConstraint : checkConstraints ) {
-				buf.append( ", check (" )
-						.append( checkConstraint )
-						.append( ')' );
-			}
-		}
-
-		buf.append( ')' );
-
-		if ( comment != null ) {
-			buf.append( dialect.getTableComment( comment ) );
-		}
-
-		return buf.append( dialect.getTableTypeString() ).toString();
+		String[] sql = dialect.getTableExporter().getSqlCreateStrings( this, (Metadata) p );
+		return String.join(" ", sql);
 	}
 
 	public String sqlDropString(Dialect dialect, String defaultCatalog, String defaultSchema) {

@@ -46,88 +46,20 @@ public class StandardTableExporter implements Exporter<Table> {
 		StringBuilder buf =
 				new StringBuilder( tableCreateString( table.hasPrimaryKey() ) )
 						.append( ' ' )
-						.append(
-								jdbcEnvironment.getQualifiedObjectNameFormatter().format(
+						.append(jdbcEnvironment.getQualifiedObjectNameFormatter().format(
 										tableName,
 										jdbcEnvironment.getDialect()
 								)
 						)
 						.append( " (" );
 
-
-		boolean isPrimaryKeyIdentity = table.hasPrimaryKey()
-				&& table.getIdentifierValue() != null
-				&& table.getIdentifierValue().isIdentityColumn( metadata.getIdentifierGeneratorFactory(), dialect );
-		// this is the much better form moving forward as we move to metamodel
-		//boolean isPrimaryKeyIdentity = hasPrimaryKey
-		//				&& table.getPrimaryKey().getColumnSpan() == 1
-		//				&& table.getPrimaryKey().getColumn( 0 ).isIdentity();
-
-		// Try to find out the name of the primary key in case the dialect needs it to create an identity
-		String pkColName = null;
-		if ( table.hasPrimaryKey() ) {
-			Column pkColumn = (Column) table.getPrimaryKey().getColumns().iterator().next();
-			pkColName = pkColumn.getQuotedName( dialect );
-		}
-
 		final Iterator columnItr = table.getColumnIterator();
-		boolean isFirst = true;
 		while ( columnItr.hasNext() ) {
 			final Column col = (Column) columnItr.next();
-			if ( isFirst ) {
-				isFirst = false;
-			}
-			else {
+			buf.append( dialect.renderColumnDefinition( col, table, metadata ) );
+
+			if ( columnItr.hasNext() ) {
 				buf.append( ", " );
-			}
-			String colName = col.getQuotedName( dialect );
-
-			buf.append( colName ).append( ' ' );
-
-			if ( isPrimaryKeyIdentity && colName.equals( pkColName ) ) {
-				// to support dialects that have their own identity data type
-				if ( dialect.getIdentityColumnSupport().hasDataTypeInIdentityColumn() ) {
-					buf.append( col.getSqlType( dialect, metadata ) );
-				}
-				buf.append( ' ' )
-						.append( dialect.getIdentityColumnSupport().getIdentityColumnString( col.getSqlTypeCode( metadata ) ) );
-			}
-			else {
-				buf.append( col.getSqlType( dialect, metadata )  );
-
-				String defaultValue = col.getDefaultValue();
-				if ( defaultValue != null ) {
-					buf.append( " default " ).append( defaultValue );
-				}
-
-				if ( col.isNullable() ) {
-					buf.append( dialect.getNullColumnString() );
-				}
-				else {
-					buf.append( " not null" );
-				}
-
-			}
-
-			if ( col.isUnique() ) {
-				String keyName = Constraint.generateName( "UK_", table, col );
-				UniqueKey uk = table.getOrCreateUniqueKey( keyName );
-				uk.addColumn( col );
-				buf.append(
-						dialect.getUniqueDelegate()
-								.getColumnDefinitionUniquenessFragment( col )
-				);
-			}
-
-			if ( col.getCheckConstraint() != null && dialect.supportsColumnCheck() ) {
-				buf.append( " check (" )
-						.append( col.getCheckConstraint() )
-						.append( ")" );
-			}
-
-			String columnComment = col.getComment();
-			if ( columnComment != null ) {
-				buf.append( dialect.getColumnComment( columnComment ) );
 			}
 		}
 		if ( table.hasPrimaryKey() ) {
